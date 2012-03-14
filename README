@@ -1,0 +1,17 @@
+./tcldebug  xxx.tcl
+
+
+Tcl debugger:                                                                                                                                                         
+   ?/h     - print help information                                                                                                                                   
+   b name  - set a breakpoint in procedure name
+   c       - continue
+   db ?name? - remove the (current) breakpoint
+   e       - print error information
+   l       - list the body of the current procedure
+   lb      - list current breakpoints
+   n       - next step (or return)
+   p name  - print a variable
+   t       - print a stack trace
+   v name ?cond? - set a trace on the variable (possibly with a
+             particular condition)
+

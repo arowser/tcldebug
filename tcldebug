@@ -1,0 +1,342 @@
+# tcldebug.tcl --
+#    created by arowser@gmail.com
+#
+
+#!/bin/sh
+# The next line restarts using tclsh \
+exec tclsh "$0" "$@"
+
+# tcldebug.tcl --
+#    Script providing basic debugging facilities
+#
+
+variable go
+variable breakpoints {}
+variable dcmd
+variable dname
+variable silent 0
+
+# dbg_enter --
+#    Callback for enterstep event
+#
+# Arguments:
+#    cmd        Expanded command line
+#    op         Operation
+# Result:
+#    None
+# Side effect:
+#    Sets dname
+#
+#
+proc dbg_enter {cmd op} {
+   variable dname
+   variable silent
+   variable breakpoints
+   if { [lsearch $breakpoints [lindex $cmd 0]] >= 0 } {
+      set silent 0
+   }
+   if { ! $silent } {
+      puts "Next: $cmd"
+      set dname [lindex $cmd 0]
+      dbg
+   }
+}
+
+# dbg_leave --
+#    Callback for leavestep event
+#
+# Arguments:
+#    cmd        Expanded command line
+#    code       Return code
+#    result     Result of the command
+#    op         Operation
+# Result:
+#    None
+#
+#
+proc dbg_leave {cmd code result op} {
+   variable dname
+   variable silent
+   if { ! $silent } {
+      set dname [lindex $cmd 0]
+      if { $code == 1 } {
+         puts "ERROR: $result"
+      } else {
+         puts "Result: $result"
+      }
+   }
+}
+
+# printHelp --
+#    Print short help information
+#
+# Arguments:
+#    None
+# Result:
+#    None
+# Side effect:
+#    Prints help
+#
+proc printHelp {} {
+   puts "Tcl debugger:
+   ?/h     - print help information
+   b name  - set a breakpoint in procedure name
+   c       - continue
+   db ?name? - remove the (current) breakpoint
+   e       - print error information
+   l       - list the body of the current procedure
+   lb      - list current breakpoints
+   n       - next step (or return)
+   p name  - print a variable
+   t       - print a stack trace
+   v name ?cond? - set a trace on the variable (possibly with a
+             particular condition)"
+}
+
+# printStack --
+#    Print the stack
+#
+# Arguments:
+#    None
+# Result:
+#    None
+# Side effect:
+#    Prints stack
+#
+proc printStack {} {
+   set nolevels [info level]
+   set level    [expr {$nolevels-3}]
+
+   set number 1
+   while { $level > 0 } {
+      puts "$number: [info level $level]"
+      incr number
+      incr level  -1
+   }
+   puts "(global level)"
+}
+
+# printBody --
+#    Print the body of the current routine
+#
+# Arguments:
+#    None
+# Result:
+#    None
+# Side effect:
+#    Prints body
+#
+proc printBody {} {
+   set nolevels [info level]
+   set level    [expr {$nolevels-3}]
+   set procname [lindex [info level $level] 0]
+
+   set number 1
+   foreach line [split [info body $procname] "\n"] {
+      puts "[format "%3d" $number]: $line"
+      incr number
+   }
+}
+
+# setBreak --
+#    Set a breakpoint in the given routine
+#
+# Arguments:
+#    None
+# Result:
+#    None
+# Side effect:
+#    Prints help
+#
+proc setBreak {dcmd} {
+   variable breakpoints
+
+   if { [llength $dcmd] == 2 } {
+      lappend breakpoints [lindex $dcmd 1]
+   } else {
+      lappend breakpoints [lindex [info level 3] 1]
+   }
+}
+
+# readCmd --
+#    Read the user's command
+#
+# Arguments:
+#    None
+# Result:
+#    None
+# Side effect:
+#    Sets dcmd
+#
+#
+proc readCmd {} {
+   variable dcmd
+
+   puts -nonewline ">> "
+   flush stdout
+   set dcmd [gets stdin]
+}
+
+# guiReadCmd --
+#    Read the user's command via a simple GUI
+#
+# Arguments:
+#    None
+# Result:
+#    None
+# Side effect:
+#    Sets go and dcmd
+#
+#
+proc guiReadCmd {} {
+   variable go
+   variable dcmd
+
+   vwait go
+   puts ">> $dcmd"
+   update
+}
+
+# createCmdWindow --
+#    Create a toplevel window to enter commands
+#
+# Arguments:
+#    None
+# Result:
+#    None
+# Side effect:
+#    Toplevel window created
+#
+#
+proc createCmdWindow {} {
+   variable go
+   variable dcmd
+
+   toplevel .debug
+   wm title .debug "Debug"
+
+   label  .debug.label -text         "Debug:"
+   entry  .debug.entry -textvariable dcmd -width 15
+   button .debug.go    -text "Go" -width 10 \
+      -command {set go   1}
+   button .debug.next  -text "Next" -width 10 \
+      -command {set dcmd "n"
+                set go   1}
+   button .debug.cont  -text "Continue" -width 10 \
+      -command {set dcmd "c"
+                set go   1}
+   button .debug.quit  -text "Quit" -width 10 \
+      -command {set dcmd "q"
+                set go   1}
+
+   grid .debug.label .debug.entry - .debug.go   -sticky news
+   grid .debug.next  .debug.cont  .debug.quit
+}
+
+# dbg --
+#    Handle the user input in debug mode
+#
+# Arguments:
+#    None
+# Result:
+#    None
+# Side effect:
+#    Whatever the user does
+#
+#
+proc dbg {} {
+   variable go
+   variable dcmd
+   variable dname
+   variable silent
+
+   while {1} {
+      #
+      # Wait for the user to enter a command
+      #
+      readCmd
+
+      #
+      # Handle the command:
+      # ?/h     - print help information
+      # b name  - set breakpoint
+      # c       - continue (remove this breakpoint)
+      # e       - print error information
+      # l       - list the body of the current procedure
+      # n       - next step
+      # p name  - print a variable
+      # t       - print a stack trace
+      # v name ?cond? - set a trace on the variable (possibly with a
+      #           particular condition)
+      #
+      switch -- [lindex $dcmd 0] {
+      "?" -
+      "h" {printHelp}
+      "b" { setBreak [lindex $dcmd 1]}
+      "c" {
+
+          #trace remove execution $dname enterstep dbg_enter
+          #trace remove execution $dname leavestep dbg_leave
+          set silent 1 ;# Much TODO
+          break
+      }
+      "e" {
+           puts "Errorinfo: $errorInfo"
+           puts "Errorcode: $errorCode"
+      }
+      "l" {printBody}
+      ""  -
+      "n" {
+          catch {
+             #trace remove execution source enterstep dbg_enter
+             #trace remove execution source leavestep dbg_leave
+             uplevel 2 "puts \$[lindex $dcmd 1]"
+          }
+          break
+      }
+      "p" {
+          catch {
+              "puts \$[lindex $dcmd 1]"
+              #uplevel 2
+          }
+      }
+      "q" -
+      "quit" {exit}
+      "t" {printStack}
+      "v" {traceVar}
+      default {
+          # Ignore for the moment
+          catch {
+          puts $dcmd
+          uplevel 2 eval $dcmd
+          } msg
+          puts $msg
+          #puts "Unknown debug command: $dcmd"
+      }
+      }
+   }
+}
+
+# main --
+#    Get the thing going
+#
+trace add execution source enterstep dbg_enter
+trace add execution source leavestep dbg_leave
+
+#
+# Create a console - if necessary
+#
+#catch {
+#   console show
+#   rename readCmd    {}
+#   rename guiReadCmd ::readCmd
+#   createCmdWindow
+#} msg
+#puts $msg
+
+puts [trace info execution source]
+
+puts $argv
+set argv0 [lindex $argv 0]
+set argv  [lrange $argv 1 end]
+source $argv0
